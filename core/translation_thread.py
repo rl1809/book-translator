@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, Union
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from logger.logging_utils import configure_logging
-from translator.core import Translator
+from translator.core import TranslationManager
 from translator.file_handler import FileHandler, FileSplitter
 from downloader.factory import DownloaderFactory
 from config.models import get_model_config
@@ -199,7 +199,7 @@ class TranslationThread(QThread):
             end_chapter=end_chapter
         )
 
-        self.translator = Translator(
+        self.translator = TranslationManager(
             model_config=model_config,
             file_handler=self.file_handler
         )
@@ -221,7 +221,7 @@ class TranslationThread(QThread):
         if not self._is_running:
             raise InterruptedError("Translation stopped by user")
 
-        self.translator.process_book_translation(
+        self.translator.translate_book(
             prompt_style=self.params['prompt_style'],
             start_chapter=start_chapter,
             end_chapter=end_chapter

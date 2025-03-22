@@ -510,16 +510,13 @@ class EnhancedProgressDialog(QDialog):
         in_progress_chapters = sum(1 for _, info in self.chapter_status.items() 
                                  if info.get("status") == "Translating")
         
-        failed_chapters = sum(1 for _, info in self.chapter_status.items() 
-                            if info.get("status") == "Failed")
-        
         incomplete_chapters = sum(1 for _, info in self.chapter_status.items() 
                                 if info.get("status") == "Incomplete")
         
         not_started_chapters = sum(1 for _, info in self.chapter_status.items() 
                                  if info.get("status") == "Not Started")
         
-        # Use translated shards for progress calculation
+        # Calculate overall progress based on successful translations only
         total_shards = sum(info.get("total_shards", 0) for _, info in self.chapter_status.items())
         translated_shards = sum(info.get("translated_shards", 0) for _, info in self.chapter_status.items())
         
@@ -531,7 +528,6 @@ class EnhancedProgressDialog(QDialog):
         total_label = self.create_stat_widget("Total Chapters", str(total_chapters), "mdi.book-open-variant")
         completed_label = self.create_stat_widget("Completed", str(completed_chapters), "mdi.check-circle", "green")
         pending_label = self.create_stat_widget("In Progress", str(in_progress_chapters), "mdi.progress-clock", "blue")
-        failed_label = self.create_stat_widget("Failed", str(failed_chapters), "mdi.alert-circle", "red")
         incomplete_label = self.create_stat_widget("Incomplete", str(incomplete_chapters), "mdi.alert", "orange")
 
         progress_frame = QFrame()
@@ -561,7 +557,6 @@ class EnhancedProgressDialog(QDialog):
         summary_layout.addWidget(total_label)
         summary_layout.addWidget(completed_label)
         summary_layout.addWidget(pending_label)
-        summary_layout.addWidget(failed_label)
         summary_layout.addWidget(incomplete_label)
         summary_layout.addWidget(progress_frame)
         layout.addWidget(summary_frame)
@@ -676,9 +671,7 @@ class EnhancedProgressDialog(QDialog):
         status = info.get("status", "Not Started")
         
         # Set icon based on status
-        if status == "Failed":
-            icon = qta.icon("mdi.alert-circle", color="red")
-        elif status == "Incomplete":
+        if status == "Incomplete":
             icon = qta.icon("mdi.alert", color="orange")
         elif status == "Translated":
             icon = qta.icon("mdi.check-circle", color="green")
@@ -692,26 +685,14 @@ class EnhancedProgressDialog(QDialog):
         chapter_label.setStyleSheet("font-size: 14px;")
 
         status_text = status
-        if status == "Failed":
-            failure_type = info.get("failure_type", "generic")
-            if failure_type == "contains_chinese":
-                status_text = "Failed: Contains Chinese"
-            elif failure_type == "prohibited_content":
-                status_text = "Failed: Prohibited Content"
-            elif failure_type == "copyrighted_content":
-                status_text = "Failed: Copyrighted Content"
-            else:
-                status_text = "Failed: Translation Error"
-        elif status == "Incomplete":
+        if status == "Incomplete":
             translated_shards = info.get("translated_shards", 0)
             failed_shards = info.get("failed_shards", 0)
             total_shards = info.get("total_shards", 0)
             status_text = f"Incomplete: {translated_shards} OK, {failed_shards} Failed"
                 
         status_label = QLabel(status_text)
-        if status == "Failed":
-            status_label.setStyleSheet("color: red; font-weight: bold;")
-        elif status == "Incomplete":
+        if status == "Incomplete":
             status_label.setStyleSheet("color: orange; font-weight: bold;")
         elif status == "Translated":
             status_label.setStyleSheet("color: green; font-weight: bold;")
@@ -742,21 +723,7 @@ class EnhancedProgressDialog(QDialog):
         total_shards = info.get("total_shards", 0)
 
         # Set progress bar color based on status
-        if status == "Failed":
-            progress_bar.setStyleSheet("""
-                QProgressBar {
-                    border: 1px solid #bbb;
-                    border-radius: 4px;
-                    text-align: center;
-                    height: 20px;
-                }
-                QProgressBar::chunk {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                             stop:0 #e53935, stop:1 #ff5252);
-                    border-radius: 4px;
-                }
-            """)
-        elif status == "Incomplete":
+        if status == "Incomplete":
             progress_bar.setStyleSheet("""
                 QProgressBar {
                     border: 1px solid #bbb;
@@ -821,8 +788,8 @@ class EnhancedProgressDialog(QDialog):
             shard_info_layout.addStretch()
             chapter_layout_inner.addLayout(shard_info_layout)
 
-        # Show error message for failed chapters
-        if status == "Failed" and "error" in info:
+        # Show error message for incomplete chapters
+        if status == "Incomplete" and "error" in info:
             error_layout = QHBoxLayout()
             error_icon = QLabel()
             error_icon.setPixmap(qta.icon("mdi.alert", color="red").pixmap(16, 16))

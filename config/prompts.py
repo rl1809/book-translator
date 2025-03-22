@@ -5,6 +5,7 @@ class PromptStyle(Enum):
     ChinaFantasy = 2
     BookInfo = 3
     Words = 4
+    IncompleteHandle = 5
 
 CHINA_FANTASY_PROMPT = """
 Hãy đóng vai một dịch giả chuyên nghiệp, chuyên về thể loại Tiên Hiệp và Huyền Huyễn. Nhiệm vụ của bạn là dịch toàn bộ đoạn văn sau từ tiếng Trung sang tiếng Việt, tuân thủ nghiêm ngặt các yêu cầu sau:
@@ -28,7 +29,6 @@ Hãy đóng vai một dịch giả chuyên nghiệp, chuyên về thể loại T
 - **Mối quan hệ giữa các nhân vật:** sư đồ, người yêu, mẹ con, chủ tớ, huynh đệ, bằng hữu, đối thủ,...
 - **Địa vị xã hội:** tông chủ, thượng khách, đại nhân, hạ nhân, đầy tớ,..., 
 - **Ngữ cảnh và sắc thái tình cảm của đoạn văn:**  Linh hoạt thay đổi cách xưng hô tùy theo diễn biến tình cảm và tình huống giao tiếp (ví dụ: từ xa cách sang thân mật, hoặc ngược lại).
-- **Đặc Biệt Chú ý:** Đối với các đoạn hội thoại, xác định người nói và người nghe để lựa chọn xưng hô một cách phù hợp, chính xác.
 
 **4. ĐỘ CHÍNH XÁC TUYỆT ĐỐI:**
 - **Không Sót Chữ:** Bản dịch phải hoàn toàn bằng tiếng Việt. Bất kỳ từ, cụm từ, hay ký tự tiếng Trung nào còn sót lại đều khiến bản dịch bị coi là KHÔNG HỢP LỆ.
@@ -90,3 +90,5 @@ WORDS_PROMPT = """
 Hãy dịch những từ tiếng Trung dưới đây sang tiếng Việt, bối cảnh truyện Tiên Hiệp, Huyền Huyễn nhưng ưu tiên từ thuần Việt.
 Trả về kết quả dưới dạng JSON với key là từ tiếng Trung và value là từ tiếng Việt tương ứng, chỉ và chỉ một bản dịch cho mỗi từ, **chỉ viết hoa chữ cái đầu cho tên riêng**.
 """
+
+INCOMPLETE_HANDLE_PROMPT = "Hãy dịch lại đoạn văn còn chứa Tiếng Trung dưới đây sang Tiếng Việt hoàn chỉnh, bối cảnh truyện Tiên Hiệp, Huyền Huyễn. **Bản dịch phải hoàn toàn bằng Tiếng Việt, nếu còn chứa bất kỳ ký tự hay từ Tiếng Trung nào sẽ được coi là bất hợp lệ**."

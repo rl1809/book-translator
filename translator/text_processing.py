@@ -249,14 +249,6 @@ def remove_underscore(text: str) -> str:
     return "\n".join(normalized_lines)
 
 
-
-def validate_translation_quality(text: str) -> None:
-    """Validate translated text contains minimal Chinese characters."""
-    has_chinese, ratio = detect_untranslated_chinese(text)
-    if has_chinese and ratio > 0.5:
-        raise ValueError(f"Excessive Chinese characters ({ratio:.2f}%)")
-
-
 def translate_long_text(text: str, src: str, dest: str, chunk_size: int = 1024) -> str:
     """
     Splits the input text into chunks, translates each chunk synchronously,

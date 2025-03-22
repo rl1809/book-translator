@@ -32,22 +32,23 @@ class ModelConfig:
     GENERATION_CONFIG: Dict[str, Any]
     SAFETY_SETTINGS: Dict[HarmCategory, HarmBlockThreshold]
 
-# Get the generation config dynamically
-DEFAULT_GENERATION_CONFIG = get_generation_config()
 
-DEFAULT_MODEL_CONFIG = ModelConfig("gemini-2.0-pro-exp-02-05", 2, DEFAULT_GENERATION_CONFIG, SAFETY_SETTINGS)
+GEMINI_FLASH_MODEL_CONFIG = ModelConfig("gemini-2.0-flash", 15, get_generation_config(), SAFETY_SETTINGS)
+GEMINI_FLASH_LITE_MODEL_CONFIG = ModelConfig("gemini-2.0-flash-lite", 15, get_generation_config(), SAFETY_SETTINGS)
+GEMINI_PRO_MODEL_CONFIG = ModelConfig("gemini-2.0-pro-exp-02-05", 2, get_generation_config(), SAFETY_SETTINGS)
+GEMINI_FLASH_THINKING_MODEL_CONFIG = ModelConfig("gemini-2.0-flash-thinking-exp-01-21", 10, get_generation_config(), SAFETY_SETTINGS)
+
 
 MODEL_CONFIGS = {
-    "gemini-2.0-flash": ModelConfig("gemini-2.0-flash", 15, DEFAULT_GENERATION_CONFIG, SAFETY_SETTINGS),
-    "gemini-2.0-flash-lite": ModelConfig("gemini-2.0-flash-lite", 15, DEFAULT_GENERATION_CONFIG, SAFETY_SETTINGS),
-    "gemini-2.0-pro": ModelConfig("gemini-2.0-pro-exp-02-05", 2, DEFAULT_GENERATION_CONFIG, SAFETY_SETTINGS),
-    "gemini-2.0-flash-thinking": ModelConfig("gemini-2.0-flash-thinking-exp-01-21", 10, DEFAULT_GENERATION_CONFIG, SAFETY_SETTINGS),
-
+    "gemini-2.0-flash": GEMINI_FLASH_MODEL_CONFIG,
+    "gemini-2.0-flash-lite": GEMINI_FLASH_LITE_MODEL_CONFIG,
+    "gemini-2.0-pro": GEMINI_PRO_MODEL_CONFIG,
+    "gemini-2.0-flash-thinking": GEMINI_FLASH_THINKING_MODEL_CONFIG,
 }
 
 def get_model_config(model_name: str) -> ModelConfig:
     """Get model configuration for the specified model with current settings."""
     return MODEL_CONFIGS.get(
         model_name, 
-        ModelConfig("gemini-2.0-flash-lite", 15, DEFAULT_GENERATION_CONFIG, SAFETY_SETTINGS)
+        GEMINI_FLASH_LITE_MODEL_CONFIG,
     )

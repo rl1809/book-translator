@@ -3,7 +3,12 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 import re
+import fcntl
+import time
+from threading import Lock
+import os
 
+from config.models import GEMINI_PRO_MODEL_CONFIG
 from config.prompts import PromptStyle
 from epub.generator import EPUBGenerator
 from logger import logging_utils
@@ -21,6 +26,7 @@ class FileHandler:
     def __init__(self, book_dir: Path, start_chapter: Optional[int], end_chapter: Optional[int]):
         self.book_dir = book_dir
         self._ensure_directory_structure()
+        self._progress_lock = Lock()  # Lock for progress file operations
 
 
     def _ensure_directory_structure(self) -> None:
@@ -68,33 +74,109 @@ class FileHandler:
         return {
             "last_batch_time": 0,
             "last_batch_size": 0,
+            "failed_translations": {}
         }
+
+
+    def _safe_read_json(self, file_path: Path) -> Optional[Dict]:
+        """Safely read a JSON file with file locking."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                # Acquire a shared (read) lock
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                try:
+                    return json.load(f)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except Exception as e:
+            logging.error(f"Error reading JSON file {file_path}: {e}")
+            return None
+
+
+    def _safe_write_json(self, file_path: Path, data: Dict) -> bool:
+        """Safely write a JSON file with file locking and atomic write."""
+        temp_path = file_path.with_suffix('.json.tmp')
+        try:
+            # Write to temporary file first
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                # Acquire an exclusive (write) lock
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    json.dump(data, f, indent=4)
+                    f.flush()
+                    os.fsync(f.fileno())
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+            # Atomic rename
+            temp_path.replace(file_path)
+            return True
+        except Exception as e:
+            logging.error(f"Error writing JSON file {file_path}: {e}")
+            if temp_path.exists():
+                temp_path.unlink()
+            return False
 
 
     def load_progress(self) -> Dict:
         """Load and return progress data from progress.json, initialize if not exists."""
         progress_file_path = self.get_progress_path()
-        try:
-            return json.loads(progress_file_path.read_text(encoding='utf-8'))
-        except FileNotFoundError:
-            logging.info("Progress file not found, initializing new progress.")
-            return self._initiate_progress() # Initialize progress if file doesn't exist
-        except json.JSONDecodeError:
-            logging.error("Progress file is corrupt, re-initializing.")
-            return self._initiate_progress() # Re-initialize if JSON is corrupt
-        except Exception as e:
-            logging_utils.log_exception(e, "Error loading progress file.")
-            return self._initiate_progress() # Fallback to new progress on any error
+        
+        with self._progress_lock:
+            try:
+                # Try to read existing progress file
+                data = self._safe_read_json(progress_file_path)
+                if data is not None:
+                    return data
+
+                # If file doesn't exist or is corrupt, initialize new progress
+                logging.info("Progress file not found or corrupt, initializing new progress.")
+                new_progress = self._initiate_progress()
+                self._safe_write_json(progress_file_path, new_progress)
+                return new_progress
+
+            except Exception as e:
+                logging_utils.log_exception(e, "Error loading progress file.")
+                new_progress = self._initiate_progress()
+                self._safe_write_json(progress_file_path, new_progress)
+                return new_progress
 
 
     def save_progress(self, progress_data: Dict) -> None:
-        """Save progress data to progress.json."""
+        """Save progress data to progress.json with proper locking."""
         progress_file_path = self.get_progress_path()
-        try:
-            progress_file_path.write_text(json.dumps(progress_data, indent=4), encoding='utf-8')
-            logging.debug("Progress saved successfully.") # Debug level - frequent operation
-        except Exception as e:
-            logging_utils.log_exception(e, "Error saving progress to file.")
+        
+        with self._progress_lock:
+            try:
+                # Ensure the data is valid before saving
+                if not isinstance(progress_data, dict):
+                    raise ValueError("Progress data must be a dictionary")
+                
+                # Ensure required fields exist
+                if "last_batch_time" not in progress_data:
+                    progress_data["last_batch_time"] = 0
+                if "last_batch_size" not in progress_data:
+                    progress_data["last_batch_size"] = 0
+                if "failed_translations" not in progress_data:
+                    progress_data["failed_translations"] = {}
+
+                # Save with retries
+                max_retries = 3
+                for attempt in range(max_retries):
+                    if self._safe_write_json(progress_file_path, progress_data):
+                        return
+                    if attempt < max_retries - 1:
+                        time.sleep(0.1)  # Small delay before retry
+                
+                raise Exception("Failed to save progress after multiple attempts")
+                
+            except Exception as e:
+                logging_utils.log_exception(e, "Error saving progress to file.")
+                # Try to recover by saving a minimal valid progress file
+                try:
+                    self._safe_write_json(progress_file_path, self._initiate_progress())
+                except Exception as recover_error:
+                    logging.error(f"Failed to recover progress file: {recover_error}")
 
     def save_content_to_file(self, content: str, filename: str, sub_dir_key: str) -> Path:
         """Save content to a file within a specified subdirectory, return Path."""
@@ -435,8 +517,8 @@ class FileHandler:
 
         translated_text = ""
         try:
-            from translator.core import Translator
-            translator = Translator()
+            from translator.core import TranslationManager
+            translator = TranslationManager(model_config=GEMINI_PRO_MODEL_CONFIG)
             raw_text = '\n'.join(chinese_words_set)
             translated_text = translator.translate_text(
                 text=raw_text,
@@ -584,73 +666,61 @@ class FileHandler:
                     chapter_status[chapter_name] = {
                         "total_shards": 0,
                         "translated_shards": 0,
+                        "failed_shards": 0,
                         "status": "Not Started",
                         "progress": 0.0,
-                        "failed": False,
-                        "failed_shards": 0
+                        "failed": False
                     }
                 chapter_status[chapter_name]["total_shards"] += 1
 
-        # Count translated shards for each chapter
+        # First check progress.json for failed translations
+        progress_data = self.load_progress()
+        if "failed_translations" in progress_data:
+            for filename, failure_info in progress_data["failed_translations"].items():
+                match = re.match(r"(.*)_\d+\.txt", filename)
+                if match:
+                    chapter_name = match.group(1)
+                    if chapter_name in chapter_status:
+                        # Count as failed shard
+                        chapter_status[chapter_name]["failed_shards"] += 1
+                        chapter_status[chapter_name]["failed"] = True
+                        # Store failure details
+                        chapter_status[chapter_name]["failure_type"] = failure_info.get("failure_type", "generic")
+                        chapter_status[chapter_name]["error"] = failure_info.get("error", "Unknown error")
+
+        # Then count translated and failed shards from files
         for file_path in response_files:
             match = re.match(r"(.*)_\d+\.txt", file_path.name)
             if match:
                 chapter_name = match.group(1)
                 if chapter_name in chapter_status:
-                    chapter_status[chapter_name]["translated_shards"] += 1
-                    if chapter_status[chapter_name]["status"] == "Not Started":
-                        chapter_status[chapter_name]["status"] = "Translating"
-
-        # Add failed translations information
-        progress_data = self.load_progress()
-        if "failed_translations" in progress_data:
-            failed_by_chapter = {}
-            # First, count failed translations by chapter
-            for filename, failure_info in progress_data["failed_translations"].items():
-                match = re.match(r"(.*)_\d+\.txt", filename)
-                if match:
-                    chapter_name = match.group(1)
-                    if chapter_name not in failed_by_chapter:
-                        failed_by_chapter[chapter_name] = []
-                    failed_by_chapter[chapter_name].append((filename, failure_info))
-            
-            # Apply failure status while tracking individual shard failures
-            for chapter_name, failures in failed_by_chapter.items():
-                if chapter_name in chapter_status:
-                    # Count failed shards
-                    chapter_status[chapter_name]["failed_shards"] = len(failures)
-                    
-                    # Store the first failure's details (for display in UI)
-                    first_failure = failures[0][1]  # Take details from the first failed shard
-                    chapter_status[chapter_name]["failure_type"] = first_failure.get("failure_type", "generic")
-                    chapter_status[chapter_name]["error"] = first_failure.get("error", "Unknown error")
-                    
-                    # Determine if the chapter should be marked as completely failed
-                    # A chapter is considered failed if it has any failed shards
-                    # But we only show Failed status if all shards are either translated or failed
-                    total_processed = chapter_status[chapter_name]["translated_shards"] + chapter_status[chapter_name]["failed_shards"]
-                    
-                    chapter_status[chapter_name]["failed"] = True
-                    
-                    if total_processed == chapter_status[chapter_name]["total_shards"]:
-                        # All shards are either translated or failed, so show failed status
-                        chapter_status[chapter_name]["status"] = "Failed"
-                    else:
-                        # Some shards still waiting to be processed, show as Incomplete
-                        chapter_status[chapter_name]["status"] = "Incomplete"
+                    content = self.load_content_from_file(file_path.name, "translation_responses")
+                    if content:
+                        if "[TRANSLATION FAILED]" in content:
+                            # Only count as failed if not already counted from progress.json
+                            if not any(filename == file_path.name for filename in progress_data.get("failed_translations", {})):
+                                chapter_status[chapter_name]["failed_shards"] += 1
+                                chapter_status[chapter_name]["failed"] = True
+                        else:
+                            # Only count as translated if not marked as failed in progress.json
+                            if not any(filename == file_path.name for filename in progress_data.get("failed_translations", {})):
+                                chapter_status[chapter_name]["translated_shards"] += 1
 
         # Calculate progress and set status for each chapter
         for chapter_name, status in chapter_status.items():
             if status["total_shards"] > 0:
-                total_processed = status["translated_shards"]  # Count only successful translations
+                # Calculate progress based on successful translations only
+                total_processed = status["translated_shards"]
                 status["progress"] = round((total_processed / status["total_shards"]) * 100, 1)
 
-                # Set final status if not already set
-                if not status.get("failed", False):
-                    if status["translated_shards"] == status["total_shards"]:
-                        status["status"] = "Translated"
-                    elif status["translated_shards"] > 0:
-                        status["status"] = "Translating"
+                # Set chapter status
+                if status["failed"]:
+                    # Any chapter with failed shards is marked as Incomplete
+                    status["status"] = "Incomplete"
+                elif status["translated_shards"] == status["total_shards"]:
+                    status["status"] = "Translated"
+                elif status["translated_shards"] > 0:
+                    status["status"] = "Translating"
 
         # Sort chapters for better readability in logs
         return dict(sorted(chapter_status.items()))

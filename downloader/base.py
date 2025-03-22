@@ -14,7 +14,8 @@ from httpx_retry import RetryTransport, RetryPolicy
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 
-from translator.core import Translator, PromptStyle
+from config.models import GEMINI_PRO_MODEL_CONFIG
+from translator.core import TranslationManager, PromptStyle
 
 
 exponential_retry = (
@@ -76,7 +77,7 @@ class BaseBookDownloader(ABC):
 
         # Create a persistent HTTP client with retry capabilities
         self.client = self._init_http_client()
-        self.translator = Translator()
+        self.translator = TranslationManager(model_config=GEMINI_PRO_MODEL_CONFIG)
 
         # Load state and initialize
         self.state = self._load_state()
